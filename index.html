@@ -206,7 +206,7 @@
 
 </style>
 </head>
-<body><script>(function(){var g=false;window.addEventListener("error",function(e){if(g)return;g=true;try{var d=document.createElement("div");d.style.cssText="position:fixed;top:0;left:0;right:0;background:#b3261e;color:#fff;font:13px -apple-system,sans-serif;padding:10px 12px;z-index:99999;line-height:1.4";d.textContent="Uygulama yükleme hatası: "+((e&&e.message)||"bilinmeyen")+((e&&e.lineno)?(" (satır "+e.lineno+")"):"")+" — bu ekranın fotoğrafını Claude’a gönderin.";(document.body||document.documentElement).appendChild(d);}catch(_){}});})();</script>
+<body><script>(function(){var g=false;window.addEventListener("error",function(e){var m=(e&&e.message)||"";var f=(e&&e.filename)||"";if(!m||m==="Script error."||(f&&f.indexOf(location.host)===-1))return;if(g)return;g=true;try{var d=document.createElement("div");d.style.cssText="position:fixed;top:0;left:0;right:0;background:#b3261e;color:#fff;font:13px -apple-system,sans-serif;padding:10px 12px;z-index:99999;line-height:1.4";d.textContent="Uygulama yükleme hatası: "+((e&&e.message)||"bilinmeyen")+((e&&e.lineno)?(" (satır "+e.lineno+")"):"")+" — bu ekranın fotoğrafını Claude’a gönderin.";(document.body||document.documentElement).appendChild(d);}catch(_){}});})();</script>
 <div class="app">
   <div id="home">
     <header class="home-head">
