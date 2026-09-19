@@ -1,4 +1,4 @@
-var C='emsile-850d0a06da';
+var C='emsile-2804b8ef5e';
 self.addEventListener('install',function(e){
  e.waitUntil(caches.open(C).then(function(c){return c.addAll(['./']);}).then(function(){return self.skipWaiting?null:null;}));
 });
