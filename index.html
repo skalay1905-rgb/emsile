@@ -3463,7 +3463,10 @@ function vExamRun(host,cfg){
    if(ok)score++;else missed.push(g.rev);
    if(cfg.onAnswer)try{cfg.onAnswer(g,ok);}catch(_e){}
    stat();
-   vNextBtn(v$('vXn'),(k+1>=cfg.n)?'Sonucu gör':'Devam →',function(){k++;next();});
+   var fired=false,tm=null;
+   var go=function(){if(fired)return;fired=true;if(tm)clearTimeout(tm);k++;next();};
+   vNextBtn(v$('vXn'),(k+1>=cfg.n)?'Sonucu gör':'Devam →',go);
+   tm=setTimeout(go, ok?1100:3200);
   });
  }
  stat();next();
@@ -3610,7 +3613,7 @@ function vLexD(){
  ['box','rot','seen','miss'].forEach(function(k){if(!L[k])L[k]={};});
  if(!L.streak)L.streak={n:0,last:''};
  if(!L.done)L.done={};
- if(L.pace!==5&&L.pace!==10)L.pace=5;
+ if([5,7,10,15].indexOf(L.pace)<0)L.pace=7;
  if(['f','n','a','p'].indexOf(L.lane)<0)L.lane='f';
  var today=vLocalDay();
  if(L.day!==today){L.day=today;L.nt=0;VSTORE.save();}
@@ -3883,7 +3886,7 @@ function vLexReveal(host,e){
 }
 
 /* ---- kabuk ---- */
-var LXTABS=[['learn','Öğren'],['srs','Tekrar'],['listen','Dinle'],['exam','Sınav'],['list','Liste']];
+var LXTABS=[['learn','Çalış'],['listen','Dinle'],['exam','Sınav'],['list','Liste']];
 function vLexShell(){
  if(v$('vlex'))return;
  var host=document.querySelector('.app')||document.body;
@@ -3944,7 +3947,7 @@ function vLexTab(tab){
  });
  var body=v$('lxBody');body.innerHTML='';
  if(tab==='learn')vLexLearn(body);
- else if(tab==='srs')vLexSRS(body);
+ else if(tab==='srs')vLexLearn(body);
  else if(tab==='listen')vLexListen(body);
  else if(tab==='exam')vLexExam(body);
  else vLexList(body);
@@ -3986,7 +3989,7 @@ function vLexLearn(body,deckKey,lvl){
  if(!deckKey){
   vLexLock(false);
   body.innerHTML=vHdr('Desteler','lxlearn')+
-   '<div class="vstat">Öğrenilen: <b>'+vLexLearned()+'</b> / '+VLEX.length+' · Bugün yeni: <b>'+L.nt+'</b> / '+L.pace+(L.streak.n>1?' · 🔥 '+L.streak.n+' gün':'')+'</div>'+
+   '<div class="vstat">Öğrenilen: <b>'+vLexLearned()+'</b> / '+VLEX.length+' · Günlük yeni: <b>'+L.pace+'</b>'+(L.streak.n>1?' · 🔥 '+L.streak.n+' gün':'')+'</div>'+
    VLEXDECKS.map(function(dk){
     var arr=vLexDeck(dk.k),done=vLexLearnedIn(dk.k),full=(done===arr.length);
     return '<button type="button" class="lxdrow" data-lxdeck="'+dk.k+'">'+
@@ -4001,17 +4004,25 @@ function vLexLearn(body,deckKey,lvl){
   return;
  }
  lvl=lvl||1;
- var arr=vLexPool(deckKey,lvl),ix=0,dk=vLexDeckOf(deckKey);
- if(!arr.length){lvl=1;arr=vLexPool(deckKey,1);}
- if(!arr.length){
-  body.innerHTML='<div class="lxtop"><button type="button" class="vchip" id="lxEB">‹ Desteler</button><b style="font-family:var(--display)">'+dkAd(deckKey)+'</b></div>'+
-   '<div class="vprompt" style="text-align:center;margin-top:20px">Bu destedeki her kelimeyi yukarı attın 🏵</div>'+
-   '<div style="text-align:center;margin-top:8px"><button type="button" class="vchip on" id="lxDoneAll">✓ Öğrenilenler · '+vLexDoneIn(deckKey)+'</button></div>';
-  v$('lxEB').onclick=function(){vLexLearn(body);};
-  v$('lxDoneAll').onclick=function(){vLexDonePanel(deckKey,function(){vLexLearn(body,deckKey);});};
-  return;
+ var dk=vLexDeckOf(deckKey),today=vLocalDay();
+ if(!L.p7){L.p7=1;if(L.pace===5)L.pace=7;VSTORE.save();}
+ if(!L.sess)L.sess={};
+ function byId(id){for(var k=0;k<VLEX.length;k++)if(VLEX[k].i===id)return VLEX[k];return null;}
+ function freshPool(){
+  return vLexPool(deckKey,lvl).filter(function(e){return L.box[e.i]==null;});
  }
- function dkAd(k){var d=vLexDeckOf(k);return d?d.ad:'';}
+ function build(){
+  var due=vLexDeck(deckKey).filter(function(e){
+   return L.box[e.i]!=null&&vLexDueQ(L,e.i);
+  }).map(function(e){return {i:e.i,t:'d'};});
+  var fresh=freshPool().slice(0,L.pace).map(function(e){return {i:e.i,t:'n'};});
+  L.sess[deckKey]={day:today,lv:lvl,q:due.concat(fresh),x:0};
+  VSTORE.save();
+ }
+ var SS=L.sess[deckKey];
+ if(!SS||SS.day!==today||SS.lv!==lvl)build();
+ SS=L.sess[deckKey];
+ function dkAd(k){var d2=vLexDeckOf(k);return d2?d2.ad:'';}
  var l2n=vLexDeckL(deckKey,2).length;
  function lvChips(){
   if(!l2n)return '';
@@ -4019,50 +4030,115 @@ function vLexLearn(body,deckKey,lvl){
    return '<button type="button" class="vchip'+(l===lvl?' on':'')+'" data-lxlv="'+l+'">S'+l+'</button>';
   }).join('')+'</span>';
  }
- function nx(){vLexStopTTS();ix=(ix+1)%arr.length;draw();}
- function pv(){vLexStopTTS();ix=(ix-1+arr.length)%arr.length;draw();}
+ function fin(){
+  var fp=freshPool().filter(function(e){
+   return !SS.q.some(function(c){return c.i===e.i;});
+  });
+  var dueLeft=vLexDeck(deckKey).filter(function(e){return L.box[e.i]!=null&&vLexDueQ(L,e.i)&&!SS.q.some(function(c,ci){return c.i===e.i&&ci>=SS.x;});}).length;
+  var allUp=!vLexPool(deckKey,1).length&&!vLexDeckL(deckKey,2).filter(function(e){return (L.box[e.i]||0)<4;}).length;
+  body.innerHTML=
+   '<div class="lxtop"><button type="button" class="vchip" id="lxBackD">‹</button><b class="lxtt">'+dk.ad+'</b></div>'+
+   '<div class="lxfin">'+
+    (SS.q.length?'<div class="lxfh">✓ Bugün tamam</div><div class="lxfs">'+SS.q.length+' kart çalıştın'+(L.streak.n>1?' · 🔥 '+L.streak.n+' gün':'')+'</div>':
+     '<div class="lxfh">Bugün için kart yok</div><div class="lxfs">Vadesi gelen tekrar bekleyen kelime yok.</div>')+
+    (fp.length?'<button type="button" class="vchip on lxbig" id="lxMore">+5 yeni kelime</button>':
+     (allUp?'<div class="lxfs">Bu kulvardaki her kelime öğrenildi 🏵</div>':'<div class="lxfs">Bu kulvarda yeni kelime kalmadı — iş artık tekrarlarda.</div>'))+
+    '<div class="lxfrow">'+
+     '<button type="button" class="vchip" id="lxDoneAll">✓ Öğrenilenler · '+vLexDoneIn(deckKey)+'</button>'+
+     '<button type="button" class="vchip" id="lxPace">günlük: '+L.pace+' ▾</button>'+
+    '</div>'+
+   '</div>';
+  v$('lxBackD').onclick=function(){vLexStopTTS();vLexLearn(body);};
+  v$('lxDoneAll').onclick=function(){vLexDonePanel(deckKey,function(){vLexLearn(body,deckKey,lvl);});};
+  v$('lxPace').onclick=function(){
+   var st=[5,7,10,15],ix2=(st.indexOf(L.pace)+1)%st.length;
+   L.pace=st[ix2];VSTORE.save();
+   v$('lxPace').textContent='günlük: '+L.pace+' ▾';
+  };
+  var mb=v$('lxMore');
+  if(mb)mb.onclick=function(){
+   fp.slice(0,5).forEach(function(e){SS.q.push({i:e.i,t:'n'});});
+   VSTORE.save();draw();
+  };
+  vLexLock(false);
+ }
+ function credit(cur,ok){
+  if(cur.c)return;
+  cur.c=1;
+  if(cur.t==='d'){vLexCredit(cur.i,ok);}
+  else if(L.box[cur.i]==null){
+   L.box[cur.i]=0;
+   if(!L.due)L.due={};
+   var t2=new Date();t2.setDate(t2.getDate()+1);
+   L.due[cur.i]=vLocalDay(t2);
+   L.seen[cur.i]=1;
+  }
+  VSTORE.save();
+ }
+ function adv(){SS.x++;VSTORE.save();draw();}
+ function nx(){
+  vLexStopTTS();
+  var cur=SS.q[SS.x];
+  if(cur)credit(cur,true);
+  adv();
+ }
+ function noGrade(){
+  vLexStopTTS();
+  var cur=SS.q[SS.x];
+  if(cur){
+   credit(cur,false);
+   SS.q.splice(Math.min(SS.x+3,SS.q.length),0,{i:cur.i,t:'d'});
+  }
+  adv();
+ }
+ function pv(){vLexStopTTS();if(SS.x>0){SS.x--;VSTORE.save();}draw();}
  function draw(){
-  var e=arr[ix];
+  if(SS.x>=SS.q.length){fin();return;}
+  var cur=SS.q[SS.x],e=byId(cur.i);
+  if(!e){adv();return;}
   body.innerHTML=
    '<div class="lxtop"><button type="button" class="vchip" id="lxBackD">‹</button>'+
     '<b class="lxtt">'+dk.ad+'</b>'+lvChips()+
-    '<span class="lxct">'+(ix+1)+' / '+arr.length+'</span></div>'+
+    '<span class="lxbdg '+(cur.t==='d'?'bd':'bn')+'">'+(cur.t==='d'?'TEKRAR':'YENİ')+'</span>'+
+    '<span class="lxct">'+(SS.x+1)+' / '+SS.q.length+'</span></div>'+
    vLexFlipHTML(e)+
    '<div class="lxnav">'+
-    '<button type="button" class="vchip" id="lxPrev">‹ Önceki</button>'+
-    '<button type="button" class="vchip on" id="lxNext">Sonraki ›</button>'+
+    (cur.t==='d'
+     ?'<button type="button" class="vchip" id="lxNo">Bilemedim</button>'+
+      '<button type="button" class="vchip on" id="lxYes">Bildim ✓</button>'
+     :'<button type="button" class="vchip" id="lxPrev">‹ Önceki</button>'+
+      '<button type="button" class="vchip on" id="lxNext">Sonraki ›</button>')+
    '</div>';
   var fl=v$('lxFlip');
   fl.onclick=function(){fl.classList.toggle('flipped');};
   if(typeof vCardBind==='function')vCardBind(fl,{next:nx,prev:pv,up:function(){
-   var e2=arr[ix],L2=vLexD();L2.box[e2.i]=4;vLexDueSet(L2,e2.i);VSTORE.save();
+   var L2=vLexD();L2.box[cur.i]=4;vLexDueSet(L2,cur.i);cur.c=1;VSTORE.save();
    if(typeof vToast==='function')vToast('✓ Öğrenildi');
-   arr.splice(ix,1);
-   if(!arr.length){vLexLearn(body,deckKey);return;}
-   ix=ix%arr.length;draw();
+   adv();
   }});
   (function(){
    var tp=body.querySelector('.lxtop');if(!tp)return;
-   var dcb=tp.querySelector('.lxdonec');
-   if(!dcb){dcb=document.createElement('button');dcb.type='button';dcb.className='vchip lxdonec';tp.appendChild(dcb);}
+   var dcb=document.createElement('button');
+   dcb.type='button';dcb.className='vchip lxdonec';
    dcb.textContent='✓ '+vLexDoneIn(deckKey);
-   dcb.onclick=function(){vLexDonePanel(deckKey,function(){
-    arr=vLexPool(deckKey,lvl);
-    if(!arr.length){vLexLearn(body,deckKey);return;}
-    ix=ix%arr.length;draw();
-   });};
+   tp.appendChild(dcb);
+   dcb.onclick=function(){vLexDonePanel(deckKey,function(){vLexLearn(body,deckKey,lvl);});};
   })();
   vLexFit(fl);
   vLexLock(true);
   if(typeof requestAnimationFrame==='function')requestAnimationFrame(function(){vLexFit(v$('lxFlip'));vLexLock(true);});
   if(!window._lxFitRs){window._lxFitRs=1;window.addEventListener('resize',function(){vLexFit(v$('lxFlip'));});}
   vLexWireSay(body,e);
-  v$('lxPrev').onclick=function(ev){ev.stopPropagation();pv();};
-  v$('lxNext').onclick=function(ev){ev.stopPropagation();nx();};
+  var pB=v$('lxPrev'),nB=v$('lxNext'),yB=v$('lxYes'),oB=v$('lxNo');
+  if(pB)pB.onclick=function(ev){ev.stopPropagation();pv();};
+  if(nB)nB.onclick=function(ev){ev.stopPropagation();nx();};
+  if(yB)yB.onclick=function(ev){ev.stopPropagation();nx();};
+  if(oB)oB.onclick=function(ev){ev.stopPropagation();noGrade();};
   v$('lxBackD').onclick=function(){vLexStopTTS();vLexLearn(body);};
   body.querySelectorAll('[data-lxlv]').forEach(function(b){
    b.onclick=function(){vLexStopTTS();vLexLearn(body,deckKey,+b.getAttribute('data-lxlv'));};
   });
+  window.__lx={nx:nx,no:noGrade,pv:pv,ss:SS};
  }
  draw();
 }
@@ -5812,25 +5888,62 @@ setTimeout(vRings,600);
 (function(){
 "use strict";
 var FD=[
- {s:'كَتَبَ',f:'كَاتِبٌ',fc:'كَ<i class="flz">ا</i>تِبٌ',m:'yazan',dz:['مَكْتُوبٌ','كِتَابٌ'],g:'s'},
- {s:'جَلَسَ',f:'جَالِسٌ',fc:'جَ<i class="flz">ا</i>لِسٌ',m:'oturan',dz:['مَجْلُوسٌ','جَلِيسٌ'],g:'s'},
- {s:'دَخَلَ',f:'دَاخِلٌ',fc:'دَ<i class="flz">ا</i>خِلٌ',m:'giren',dz:['مَدْخُولٌ','دَخِيلٌ'],g:'s'},
- {s:'خَرَجَ',f:'خَارِجٌ',fc:'خَ<i class="flz">ا</i>رِجٌ',m:'çıkan',dz:['مَخْرُوجٌ','خَرِيجٌ'],g:'s'},
- {s:'فَتَحَ',f:'فَاتِحٌ',fc:'فَ<i class="flz">ا</i>تِحٌ',m:'açan',dz:['مَفْتُوحٌ','فَتَّاحٌ'],g:'s'},
- {s:'سَأَلَ',f:'سَائِلٌ',fc:'سَ<i class="flz">ا</i>ئِلٌ',m:'soran',dz:['مَسْؤُولٌ','سَؤُولٌ'],g:'s'},
- {s:'قَرَأَ',f:'قَارِئٌ',fc:'قَ<i class="flz">ا</i>رِئٌ',m:'okuyan',dz:['مَقْرُوءٌ','قَرَّاءٌ'],g:'s'},
- {s:'قَالَ',f:'قَائِلٌ',fc:'قَ<i class="flz">ا</i>ئِلٌ',m:'söyleyen',dz:['مَقُولٌ','قَوَّالٌ'],g:'s'},
- {s:'نَظَرَ',f:'نَاظِرٌ',fc:'نَ<i class="flz">ا</i>ظِرٌ',m:'bakan',dz:['مَنْظُورٌ','نَظِيرٌ'],g:'s'},
- {s:'حَمَلَ',f:'حَامِلٌ',fc:'حَ<i class="flz">ا</i>مِلٌ',m:'taşıyan',dz:['مَحْمُولٌ','حَمَّالٌ'],g:'s'},
- {s:'فَهِمَ',f:'فَاهِمٌ',fc:'فَ<i class="flz">ا</i>هِمٌ',m:'anlayan',dz:['مَفْهُومٌ','فَهِيمٌ'],g:'s'},
- {s:'عَمِلَ',f:'عَامِلٌ',fc:'عَ<i class="flz">ا</i>مِلٌ',m:'çalışan · işçi',dz:['مَعْمُولٌ','عَمِيلٌ'],g:'s'},
- {s:'يُعَلِّمُ',f:'مُعَلِّمٌ',fc:'<i class="flz">مُ</i>عَلِّمٌ',m:'öğreten',dz:['مُعَلَّمٌ','مَعْلُومٌ'],g:'m'},
- {s:'يُسَافِرُ',f:'مُسَافِرٌ',fc:'<i class="flz">مُ</i>سَافِرٌ',m:'yolculuk eden',dz:['مُسَافَرٌ','سَافِرٌ'],g:'m'},
- {s:'يُسَاعِدُ',f:'مُسَاعِدٌ',fc:'<i class="flz">مُ</i>سَاعِدٌ',m:'yardım eden',dz:['مُسَاعَدٌ','سَاعِدٌ'],g:'m'},
- {s:'يَتَعَلَّمُ',f:'مُتَعَلِّمٌ',fc:'<i class="flz">مُ</i>تَعَلِّمٌ',m:'öğrenen',dz:['مُتَعَلَّمٌ','تَعَلُّمٌ'],g:'m'},
- {s:'يَسْتَغْفِرُ',f:'مُسْتَغْفِرٌ',fc:'<i class="flz">مُ</i>سْتَغْفِرٌ',m:'bağışlanma dileyen',dz:['مُسْتَغْفَرٌ','اِسْتِغْفَارٌ'],g:'m'},
- {s:'يَنْتَقِلُ',f:'مُنْتَقِلٌ',fc:'<i class="flz">مُ</i>نْتَقِلٌ',m:'geçen · taşınan',dz:['مُنْتَقَلٌ','اِنْتِقَالٌ'],g:'m'}
+ {s:'كَتَبَ',f:'كَاتِبٌ',fc:'كَ<i class="flz">ا</i>تِبٌ',m:'yazan',dz:['مَكْتُوبٌ','كِتَابٌ'],g:'sah'},
+ {s:'جَلَسَ',f:'جَالِسٌ',fc:'جَ<i class="flz">ا</i>لِسٌ',m:'oturan',dz:['مَجْلُوسٌ','جَلِيسٌ'],g:'sah'},
+ {s:'دَخَلَ',f:'دَاخِلٌ',fc:'دَ<i class="flz">ا</i>خِلٌ',m:'giren',dz:['مَدْخُولٌ','دَخِيلٌ'],g:'sah'},
+ {s:'خَرَجَ',f:'خَارِجٌ',fc:'خَ<i class="flz">ا</i>رِجٌ',m:'çıkan',dz:['مَخْرُوجٌ','خَرِيجٌ'],g:'sah'},
+ {s:'فَتَحَ',f:'فَاتِحٌ',fc:'فَ<i class="flz">ا</i>تِحٌ',m:'açan',dz:['مَفْتُوحٌ','فَتَّاحٌ'],g:'sah'},
+ {s:'نَظَرَ',f:'نَاظِرٌ',fc:'نَ<i class="flz">ا</i>ظِرٌ',m:'bakan',dz:['مَنْظُورٌ','نَظِيرٌ'],g:'sah'},
+ {s:'حَمَلَ',f:'حَامِلٌ',fc:'حَ<i class="flz">ا</i>مِلٌ',m:'taşıyan',dz:['مَحْمُولٌ','حَمَّالٌ'],g:'sah'},
+ {s:'فَهِمَ',f:'فَاهِمٌ',fc:'فَ<i class="flz">ا</i>هِمٌ',m:'anlayan',dz:['مَفْهُومٌ','فَهِيمٌ'],g:'sah'},
+ {s:'عَمِلَ',f:'عَامِلٌ',fc:'عَ<i class="flz">ا</i>مِلٌ',m:'çalışan · işçi',dz:['مَعْمُولٌ','عَمِيلٌ'],g:'sah'},
+ {s:'ذَهَبَ',f:'ذَاهِبٌ',fc:'ذَ<i class="flz">ا</i>هِبٌ',m:'giden',dz:['مَذْهَبٌ','ذَهَابٌ'],g:'sah'},
+ {s:'شَرِبَ',f:'شَارِبٌ',fc:'شَ<i class="flz">ا</i>رِبٌ',m:'içen',dz:['مَشْرُوبٌ','شُرْبٌ'],g:'sah'},
+ {s:'لَبِسَ',f:'لَابِسٌ',fc:'لَ<i class="flz">ا</i>بِسٌ',m:'giyen',dz:['مَلْبُوسٌ','لِبَاسٌ'],g:'sah'},
+ {s:'رَجَعَ',f:'رَاجِعٌ',fc:'رَ<i class="flz">ا</i>جِعٌ',m:'dönen',dz:['مَرْجِعٌ','رُجُوعٌ'],g:'sah'},
+ {s:'سَمِعَ',f:'سَامِعٌ',fc:'سَ<i class="flz">ا</i>مِعٌ',m:'işiten',dz:['مَسْمُوعٌ','سَمَّاعٌ'],g:'sah'},
+ {s:'عَلِمَ',f:'عَالِمٌ',fc:'عَ<i class="flz">ا</i>لِمٌ',m:'bilen · âlim',dz:['مَعْلُومٌ','عَلَّامٌ'],g:'sah'},
+ {s:'أَكَلَ',f:'آكِلٌ',fc:'<i class="flz">آ</i>كِلٌ',m:'yiyen',dz:['مَأْكُولٌ','أَكَّالٌ'],g:'sah'},
+ {s:'سَأَلَ',f:'سَائِلٌ',fc:'سَ<i class="flz">ائِ</i>لٌ',m:'soran',dz:['مَسْؤُولٌ','سَؤُولٌ'],g:'sah'},
+ {s:'قَرَأَ',f:'قَارِئٌ',fc:'قَ<i class="flz">ا</i>رِئٌ',m:'okuyan',dz:['مَقْرُوءٌ','قَرَّاءٌ'],g:'sah'},
+ {s:'مَدَّ',f:'مَادٌّ',fc:'مَ<i class="flz">ا</i>دٌّ',m:'uzatan',dz:['مَمْدُودٌ','مَدٌّ'],g:'muz'},
+ {s:'رَدَّ',f:'رَادٌّ',fc:'رَ<i class="flz">ا</i>دٌّ',m:'geri çeviren',dz:['مَرْدُودٌ','رَدٌّ'],g:'muz'},
+ {s:'عَدَّ',f:'عَادٌّ',fc:'عَ<i class="flz">ا</i>دٌّ',m:'sayan',dz:['مَعْدُودٌ','عَدَدٌ'],g:'muz'},
+ {s:'ظَنَّ',f:'ظَانٌّ',fc:'ظَ<i class="flz">ا</i>نٌّ',m:'sanan',dz:['مَظْنُونٌ','ظَنٌّ'],g:'muz'},
+ {s:'مَرَّ',f:'مَارٌّ',fc:'مَ<i class="flz">ا</i>رٌّ',m:'geçen',dz:['مَمَرٌّ','مُرُورٌ'],g:'muz'},
+ {s:'حَجَّ',f:'حَاجٌّ',fc:'حَ<i class="flz">ا</i>جٌّ',m:'hacceden',dz:['مَحْجُوجٌ','حَجٌّ'],g:'muz'},
+ {s:'قَالَ',f:'قَائِلٌ',fc:'قَ<i class="flz">ائِ</i>لٌ',m:'söyleyen',dz:['مَقُولٌ','قَوَّالٌ'],g:'ecv'},
+ {s:'كَانَ',f:'كَائِنٌ',fc:'كَ<i class="flz">ائِ</i>نٌ',m:'olan · varlık',dz:['كَوْنٌ','مَكَانٌ'],g:'ecv'},
+ {s:'سَارَ',f:'سَائِرٌ',fc:'سَ<i class="flz">ائِ</i>رٌ',m:'yürüyen · giden',dz:['سَيْرٌ','مَسَارٌ'],g:'ecv'},
+ {s:'زَارَ',f:'زَائِرٌ',fc:'زَ<i class="flz">ائِ</i>رٌ',m:'ziyaret eden',dz:['مَزُورٌ','زِيَارَةٌ'],g:'ecv'},
+ {s:'بَاعَ',f:'بَائِعٌ',fc:'بَ<i class="flz">ائِ</i>عٌ',m:'satan · satıcı',dz:['مَبِيعٌ','بَيْعٌ'],g:'ecv'},
+ {s:'نَامَ',f:'نَائِمٌ',fc:'نَ<i class="flz">ائِ</i>مٌ',m:'uyuyan',dz:['نَوْمٌ','مَنَامٌ'],g:'ecv'},
+ {s:'قَامَ',f:'قَائِمٌ',fc:'قَ<i class="flz">ائِ</i>مٌ',m:'kalkan · ayakta duran',dz:['مَقَامٌ','قِيَامٌ'],g:'ecv'},
+ {s:'خَافَ',f:'خَائِفٌ',fc:'خَ<i class="flz">ائِ</i>فٌ',m:'korkan',dz:['مَخُوفٌ','خَوْفٌ'],g:'ecv'},
+ {s:'دَعَا',f:'دَاعٍ',fc:'دَ<i class="flz">ا</i>عٍ',m:'çağıran · davetçi',dz:['مَدْعُوٌّ','دُعَاءٌ'],g:'nak'},
+ {s:'رَمَى',f:'رَامٍ',fc:'رَ<i class="flz">ا</i>مٍ',m:'atan',dz:['مَرْمِيٌّ','رَمْيٌ'],g:'nak'},
+ {s:'مَشَى',f:'مَاشٍ',fc:'مَ<i class="flz">ا</i>شٍ',m:'yürüyen',dz:['مَشْيٌ','مَمْشًى'],g:'nak'},
+ {s:'بَكَى',f:'بَاكٍ',fc:'بَ<i class="flz">ا</i>كٍ',m:'ağlayan',dz:['مَبْكِيٌّ','بُكَاءٌ'],g:'nak'},
+ {s:'سَقَى',f:'سَاقٍ',fc:'سَ<i class="flz">ا</i>قٍ',m:'sulayan',dz:['مَسْقِيٌّ','سَقْيٌ'],g:'nak'},
+ {s:'بَقِيَ',f:'بَاقٍ',fc:'بَ<i class="flz">ا</i>قٍ',m:'kalan',dz:['بَقَاءٌ','بَقِيَّةٌ'],g:'nak'},
+ {s:'قَضَى',f:'قَاضٍ',fc:'قَ<i class="flz">ا</i>ضٍ',m:'hükmeden · kadı',dz:['مَقْضِيٌّ','قَضَاءٌ'],g:'nak'},
+ {s:'رَوَى',f:'رَاوٍ',fc:'رَ<i class="flz">ا</i>وٍ',m:'rivayet eden',dz:['مَرْوِيٌّ','رِوَايَةٌ'],g:'nak'},
+ {s:'يُعَلِّمُ',f:'مُعَلِّمٌ',fc:'<i class="flz">مُ</i>عَلِّمٌ',m:'öğreten',dz:['مُعَلَّمٌ','مَعْلُومٌ'],g:'mzd'},
+ {s:'يُدَرِّسُ',f:'مُدَرِّسٌ',fc:'<i class="flz">مُ</i>دَرِّسٌ',m:'ders veren',dz:['مُدَرَّسٌ','تَدْرِيسٌ'],g:'mzd'},
+ {s:'يُسَافِرُ',f:'مُسَافِرٌ',fc:'<i class="flz">مُ</i>سَافِرٌ',m:'yolculuk eden',dz:['مُسَافَرٌ','سَفَرٌ'],g:'mzd'},
+ {s:'يُسَاعِدُ',f:'مُسَاعِدٌ',fc:'<i class="flz">مُ</i>سَاعِدٌ',m:'yardım eden',dz:['مُسَاعَدٌ','مُسَاعَدَةٌ'],g:'mzd'},
+ {s:'يُحَاوِلُ',f:'مُحَاوِلٌ',fc:'<i class="flz">مُ</i>حَاوِلٌ',m:'deneyen',dz:['مُحَاوَلَةٌ','حَوْلٌ'],g:'mzd'},
+ {s:'يُرْسِلُ',f:'مُرْسِلٌ',fc:'<i class="flz">مُ</i>رْسِلٌ',m:'gönderen',dz:['مُرْسَلٌ','إِرْسَالٌ'],g:'mzd'},
+ {s:'يُكْرِمُ',f:'مُكْرِمٌ',fc:'<i class="flz">مُ</i>كْرِمٌ',m:'ikram eden',dz:['مُكْرَمٌ','إِكْرَامٌ'],g:'mzd'},
+ {s:'يَتَعَلَّمُ',f:'مُتَعَلِّمٌ',fc:'<i class="flz">مُ</i>تَعَلِّمٌ',m:'öğrenen',dz:['مُتَعَلَّمٌ','تَعَلُّمٌ'],g:'mzd'},
+ {s:'يَتَعَاوَنُ',f:'مُتَعَاوِنٌ',fc:'<i class="flz">مُ</i>تَعَاوِنٌ',m:'yardımlaşan',dz:['تَعَاوُنٌ','مُعَاوِنٌ'],g:'mzd'},
+ {s:'يَجْتَهِدُ',f:'مُجْتَهِدٌ',fc:'<i class="flz">مُ</i>جْتَهِدٌ',m:'gayret eden',dz:['اِجْتِهَادٌ','جُهْدٌ'],g:'mzd'},
+ {s:'يَنْتَقِلُ',f:'مُنْتَقِلٌ',fc:'<i class="flz">مُ</i>نْتَقِلٌ',m:'taşınan · geçen',dz:['مُنْتَقَلٌ','اِنْتِقَالٌ'],g:'mzd'},
+ {s:'يَسْتَمِعُ',f:'مُسْتَمِعٌ',fc:'<i class="flz">مُ</i>سْتَمِعٌ',m:'dinleyen',dz:['اِسْتِمَاعٌ','سَمْعٌ'],g:'mzd'},
+ {s:'يَسْتَغْفِرُ',f:'مُسْتَغْفِرٌ',fc:'<i class="flz">مُ</i>سْتَغْفِرٌ',m:'bağışlanma dileyen',dz:['مُسْتَغْفَرٌ','اِسْتِغْفَارٌ'],g:'mzd'},
+ {s:'يَسْتَقْبِلُ',f:'مُسْتَقْبِلٌ',fc:'<i class="flz">مُ</i>سْتَقْبِلٌ',m:'karşılayan',dz:['مُسْتَقْبَلٌ','اِسْتِقْبَالٌ'],g:'mzd'}
 ];
+var VFCATS=[['all','Tümü'],['sah','Sahih'],['muz','Muzaaf'],['ecv','Ecvef'],['nak','Nâkıs'],['mzd','Mezîd']];
 function st(){var d=VSTORE.d;if(!d.srs)d.srs={};if(!d.srs.fail)d.srs.fail={box:{},learned:[]};return d.srs.fail;}
 function mark(i){var S=st();if(S.learned.indexOf(i)<0){S.learned.push(i);VSTORE.save();ring();}}
 function ring(){
@@ -5878,29 +5991,61 @@ function Q7(i){
   opts:qO([e.f].concat(wr),0,1),
   note:'İsm-i fâil, isim cümlesinin HABERİ olur — şimdiki zaman gibi çevrilir.',_id:si.ai};}
 function Q8(i){
- var e=FD[i],fem=e.f.replace(/\u064C$/,'\u064E\u0629\u064C');
- var wr=shf(FD.filter(function(x,k){return k!==i;})).slice(0,2).map(function(x){return x.f.replace(/\u064C$/,'\u064E\u0629\u064C');});
+ function fz(w){return w.replace(/\u064D$/,'\u0650\u064A\u064E\u0629\u064C').replace(/\u064C$/,'\u064E\u0629\u064C');}
+ var e=FD[i],fem=fz(e.f);
+ var wr=shf(FD.filter(function(x,k){return k!==i;})).slice(0,2).map(function(x){return fz(x.f);});
  return {prompt:'Dişili hangisi?',
   focus:'<span class="fbig" dir="rtl">'+e.fc+'</span><div class="fme">'+e.m+'</div>',
   opts:qO([fem,e.f,wr[0],wr[1]],0,1),
   note:'Dişil: sona <b dir="rtl">ةٌ</b> gelir، önündeki harf fethalanır: كَاتِبٌ → كَاتِبَةٌ.',_id:i};}
-function loop(host,kinds){
- var sc=0,cb=0,ix=shf(FD.map(function(_,k){return k;})),p=0;
- host.innerHTML='<div class="vstat">Skor <b id="vFs">0</b> · <span id="vFc">combo ×0</span></div><div id="vFq"></div>';
+window.vDrill=function(host,items,kinds,opts){
+ opts=opts||{};
+ var vt=VT,sc=0,cb=0,que=[],p=0,cat='all';
+ var cats=opts.cats||null;
+ function pool(){
+  var ix=items.map(function(_,k){return k;});
+  if(cat!=='all'&&opts.catOf)ix=ix.filter(function(k){return opts.catOf(items[k])===cat;});
+  return ix.length?ix:items.map(function(_,k){return k;});
+ }
+ function reset(){que=shf(pool());p=0;}
+ host.innerHTML=
+  (cats?'<div class="vchips" style="justify-content:center;margin-bottom:6px">'+
+    cats.map(function(c){return '<button type="button" class="vchip vdcat'+(c[0]==='all'?' on':'')+'" data-vdc="'+c[0]+'">'+c[1]+'</button>';}).join('')+
+   '</div>':'')+
+  '<div class="vstat">Skor <b class="vds">0</b> · <span class="vdc">combo ×0</span></div>'+
+  '<div class="vdq"></div><div class="vfb akfb vdn" style="display:none"></div>';
+ var qEl=host.querySelector('.vdq'),nEl=host.querySelector('.vdn');
+ host.addEventListener('click',function(ev){
+  var b=ev.target.closest('.vdcat');
+  if(!b)return;
+  cat=b.getAttribute('data-vdc');
+  host.querySelectorAll('.vdcat').forEach(function(x){x.classList.toggle('on',x===b);});
+  reset();ask();
+ });
  function ask(){
-  var i=ix[p%ix.length];p++;
+  if(!que.length)reset();
+  if(p>=que.length)reset();
+  var i=que[p];p++;
   var g=kinds[Math.floor(Math.random()*kinds.length)](i);
-  vQ(v$('vFq'),g,function(ok,ms){
-   if(ok){sc++;cb++;if(ms<3500)mark(g._id);}else cb=0;
-   v$('vFs').textContent=sc;v$('vFc').textContent='combo ×'+cb;
-   setTimeout(function(){if(VT==='fail'&&VMODE==='practice')ask();},430);
+  nEl.style.display='none';
+  var note=g.note;g.note=null;
+  vQ(qEl,g,function(ok,ms){
+   if(ok){sc++;cb++;if(ms<3500&&opts.mark)opts.mark(g._id);}
+   else{cb=0;que.splice(Math.min(p+2,que.length),0,i);}
+   host.querySelector('.vds').textContent=sc;
+   host.querySelector('.vdc').textContent='combo ×'+cb;
+   if(note){nEl.innerHTML=(ok?'<b>Doğru.</b> ':'<b>Not:</b> ')+note;nEl.style.display='block';}
+   setTimeout(function(){if(VT===vt&&qEl.isConnected)ask();}, ok?1000:2400);
   });
  }
- ask();
+ reset();ask();
+};
+function loop(host,kinds){
+ window.vDrill(host,FD,kinds,{catOf:function(e){return e.g;},cats:VFCATS,mark:mark});
 }
 function rLearn(){
  var h=v$('vv-learn');if(!h)return;
- function rows(g){return FD.filter(function(e){return e.g===g;}).map(function(e,k){
+ function rows(g){return FD.filter(function(e){return e.g===g;}).map(function(e){
   var i=FD.indexOf(e);
   return '<div class="frow" data-fsay="'+i+'"><span class="fa1" dir="rtl">'+e.s+'</span><span style="color:var(--muted)">→</span><span class="fa2" dir="rtl">'+e.fc+'</span><span class="fm">'+e.m+'</span></div>';
  }).join('');}
@@ -5927,8 +6072,21 @@ function rLearn(){
   '<div class="kseri"><b dir="rtl">أَنَا <i class="flz">فَاهِمٌ</i> الدَّرْسَ</b><br><small>Dersi anlamış hâldeyim.</small></div>'+
   '<div class="mznote"><b>Bir adım ötesi — mübalağa:</b> Çokça yapan için kalıp <b dir="rtl">فَعَّال</b> olur: <b dir="rtl">غَفَّارٌ</b> çok bağışlayan، <b dir="rtl">فَتَّاحٌ</b> çokça açan، <b dir="rtl">قَوَّالٌ</b> çok konuşan. Esmâ-i Hüsnâ’daki <b dir="rtl">الْغَفَّار</b> ve <b dir="rtl">الْفَتَّاح</b> bu kalıptandır.</div>'+
   '<div class="mznote"><b>Sık karışan:</b> <b dir="rtl">كَبِيرٌ</b>، <b dir="rtl">جَمِيلٌ</b> gibi kelimeler fâil DEĞİLDİR — bunlar kalıcı vasıf bildiren sıfatlardır (sıfat-ı müşebbehe). İsm-i fâil geçici bir İŞİ anlatır: yazmakta olan، oturmakta olan.</div>'+
-  '<div class="fsec">Sülâsî · فَاعِل</div>'+rows('s')+
-  '<div class="fsec">Mezîd · مُـ</div>'+rows('m')+
+  '<div class="fsec">1 · Sahih Sülâsî (hemzeliler dahil)</div>'+
+  '<div class="kseri">Temel kalıp <b dir="rtl">فَاعِل</b>. Hemzeli kökler de aynen uyar: <b dir="rtl">آكِلٌ</b>، <b dir="rtl">قَارِئٌ</b>.</div>'+rows('sah')+
+  '<div class="fsec">2 · Muzaaf</div>'+
+  '<div class="kseri">Şedde korunur: <b dir="rtl">مَدَّ → مَادٌّ</b>.</div>'+rows('muz')+
+  '<div class="fsec">3 · Ecvef</div>'+
+  '<div class="kseri">Ortadaki illet HEMZEYE döner: <b dir="rtl">قَالَ → قَائِلٌ</b>، <b dir="rtl">بَاعَ → بَائِعٌ</b>.</div>'+rows('ecv')+
+  '<div class="fsec">4 · Nâkıs (Mankûs)</div>'+
+  '<div class="kseri">Son illet düşer، kelime kesra tenviniyle biter: <b dir="rtl">دَعَا → دَاعٍ</b>. El takısı gelince يـ geri gelir: <b dir="rtl">اَلدَّاعِي</b>.</div>'+rows('nak')+
+  '<div class="fsec">5 · Mezîd (4-5-6 harfli)</div>'+
+  '<div class="kseri">Muzârinin يـ’sı ötreli <b dir="rtl" class="flz">مُـ</b> olur؛ sondan önceki harfin KESRASI kalır: <b dir="rtl">يُعَلِّمُ → مُعَلِّمٌ</b>، <b dir="rtl">يَسْتَغْفِرُ → مُسْتَغْفِرٌ</b>.</div>'+rows('mzd')+
+  '<div class="fsec">6 · El Takısıyla Kullanım</div>'+
+  '<div class="kseri"><b dir="rtl">اَلْـ</b> gelince ism-i fâil belirli kişiyi gösterir، isim gibi kullanılır:<br>'+
+  '<b dir="rtl">جَاءَ الْمُعَلِّمُ</b> — Öğretmen geldi.<br>'+
+  '<b dir="rtl">اَلْكَاتِبُ مَشْهُورٌ</b> — O yazar meşhurdur.<br>'+
+  '<b dir="rtl">رَأَيْتُ الدَّاعِيَ</b> — Davetçiyi gördüm (mankûsun يـ’sı geri geldi).</div>'+
   '<div class="mznote" style="margin-top:12px">Satıra dokun — sesli oku. Sonra <b>Pratik</b>’te kalıbı tanı, <b>Sınav</b>’da mühürle.</div>';
  h.onclick=function(ev){
   var r=ev.target.closest('[data-fsay]');
@@ -5948,20 +6106,38 @@ function rList(){
 function rExam(){
  var h=v$('vv-exam');if(!h)return;
  var seq=shf(FD.map(function(_,k){return k;}));
- var kinds=[Q1,Q4,Q7,Q3,Q8,Q2];
- vExamRun(h,{title:'Sınav · İsm-i Fâil',subtitle:'Kalıp, cümle, dişil ve dönüşüm — 12 soru, 6 tür.',n:12,
-  retry:rExam,
-  gen:function(k){
-   var qq=kinds[k%6](seq[k%seq.length]);
-   return {q:qq,rev:{lb:FD[qq._id].m,ar:FD[qq._id].f}};
-  }});
+ h.innerHTML='<div class="vchips" style="justify-content:center;margin:6px 0 10px">'+
+  '<button type="button" class="vchip on" data-fxm="12">Hızlı · 12</button>'+
+  '<button type="button" class="vchip" data-fxm="24">Tam Tur · 24</button>'+
+  '<button type="button" class="vchip" data-fxm="54">Ustalık · '+FD.length+'</button>'+
+  '<button type="button" class="vchip" data-fxm="fm">Fâil ↔ Mef’ûl · 50</button>'+
+ '</div><div id="fxHost"></div>';
+ h.querySelectorAll('[data-fxm]').forEach(function(b){
+  b.onclick=function(){
+   h.querySelectorAll('[data-fxm]').forEach(function(x){x.classList.toggle('on',x===b);});
+   run(b.getAttribute('data-fxm'));
+  };
+ });
+ function run(mode){
+  var host=h.querySelector('#fxHost');
+  if(mode==='fm'){if(window.VFMEXAM)window.VFMEXAM(host,function(){run('fm');});return;}
+  var n=+mode;
+  var kinds=[Q1,Q4,Q7,Q3,Q8,Q2],sq=shf(FD.map(function(_,k){return k;}));
+  vExamRun(host,{title:'Sınav · İsm-i Fâil',subtitle:(n>=FD.length?'Ustalık — tüm havuz':'Kalıp, cümle, dişil ve dönüşüm')+' · '+n+' soru, 6 tür.',n:n,
+   retry:function(){run(mode);},
+   gen:function(k){
+    var qq=kinds[k%6](sq[k%sq.length]);
+    return {q:qq,rev:{lb:FD[qq._id].m,ar:FD[qq._id].f}};
+   }});
+ }
+ run('12');
 }
 /* motoru sar */
 var _ot=vOpenTopic;
 vOpenTopic=function(k){
  _ot(k);
  if(k==='fail'){
-  var f=v$('vFoot');if(f)f.textContent='فَاعِل kalıbı · sülâsî + mezîd · 18 çift';
+  var f=v$('vFoot');if(f)f.textContent='فَاعِل kalıbı · 5 kategori · '+((window.VFAIL&&VFAIL.length)||54)+' çift';
   var sb=v$('vSub');if(sb)sb.textContent='Sarf · İsim Kalıpları';
  }
 };
@@ -5992,25 +6168,58 @@ setTimeout(ring,80);setTimeout(ring,700);
 (function(){
 "use strict";
 var MD=[
- {s:'كَتَبَ',vm:'yazdı',f:'مَكْتُوبٌ',fc:'<i class="flz">مَ</i>كْتُ<i class="flz">و</i>بٌ',m:'yazılan',dz:['كَاتِبٌ','كِتَابَةٌ'],g:'s'},
- {s:'فَتَحَ',vm:'açtı',f:'مَفْتُوحٌ',fc:'<i class="flz">مَ</i>فْتُ<i class="flz">و</i>حٌ',m:'açılan · açık',dz:['فَاتِحٌ','فَتْحٌ'],g:'s'},
- {s:'سَأَلَ',vm:'sordu',f:'مَسْؤُولٌ',fc:'<i class="flz">مَ</i>سْؤُ<i class="flz">و</i>لٌ',m:'sorulan · sorumlu',dz:['سَائِلٌ','سُؤَالٌ'],g:'s'},
- {s:'قَرَأَ',vm:'okudu',f:'مَقْرُوءٌ',fc:'<i class="flz">مَ</i>قْرُ<i class="flz">و</i>ءٌ',m:'okunan',dz:['قَارِئٌ','قِرَاءَةٌ'],g:'s'},
- {s:'نَظَرَ',vm:'baktı',f:'مَنْظُورٌ',fc:'<i class="flz">مَ</i>نْظُ<i class="flz">و</i>رٌ',m:'bakılan',dz:['نَاظِرٌ','نَظَرٌ'],g:'s'},
- {s:'حَمَلَ',vm:'taşıdı',f:'مَحْمُولٌ',fc:'<i class="flz">مَ</i>حْمُ<i class="flz">و</i>لٌ',m:'taşınan',dz:['حَامِلٌ','حَمْلٌ'],g:'s'},
- {s:'فَهِمَ',vm:'anladı',f:'مَفْهُومٌ',fc:'<i class="flz">مَ</i>فْهُ<i class="flz">و</i>مٌ',m:'anlaşılan · kavram',dz:['فَاهِمٌ','فَهْمٌ'],g:'s'},
- {s:'عَلِمَ',vm:'bildi',f:'مَعْلُومٌ',fc:'<i class="flz">مَ</i>عْلُ<i class="flz">و</i>مٌ',m:'bilinen',dz:['عَالِمٌ','عِلْمٌ'],g:'s'},
- {s:'شَرِبَ',vm:'içti',f:'مَشْرُوبٌ',fc:'<i class="flz">مَ</i>شْرُ<i class="flz">و</i>بٌ',m:'içilen · içecek',dz:['شَارِبٌ','شُرْبٌ'],g:'s'},
- {s:'أَكَلَ',vm:'yedi',f:'مَأْكُولٌ',fc:'<i class="flz">مَ</i>أْكُ<i class="flz">و</i>لٌ',m:'yenilen',dz:['آكِلٌ','أَكْلٌ'],g:'s'},
- {s:'قَالَ',vm:'söyledi',f:'مَقُولٌ',fc:'<i class="flz">مَ</i>قُ<i class="flz">و</i>لٌ',m:'söylenen',dz:['قَائِلٌ','قَوْلٌ'],g:'s'},
- {s:'دَعَا',vm:'davet etti',f:'مَدْعُوٌّ',fc:'<i class="flz">مَ</i>دْعُ<i class="flz">وٌّ</i>',m:'davet edilen',dz:['دَاعٍ','دُعَاءٌ'],g:'s'},
- {s:'يُعَلِّمُ',vm:'öğretir',f:'مُعَلَّمٌ',fc:'<i class="flz">مُ</i>عَلَّمٌ',m:'öğretilen',dz:['مُعَلِّمٌ','مَعْلُومٌ'],g:'m'},
- {s:'يُرْسِلُ',vm:'gönderir',f:'مُرْسَلٌ',fc:'<i class="flz">مُ</i>رْسَلٌ',m:'gönderilen',dz:['مُرْسِلٌ','رَسُولٌ'],g:'m'},
- {s:'يُسَاعِدُ',vm:'yardım eder',f:'مُسَاعَدٌ',fc:'<i class="flz">مُ</i>سَاعَدٌ',m:'yardım edilen',dz:['مُسَاعِدٌ','سَاعِدٌ'],g:'m'},
- {s:'يَسْتَقْبِلُ',vm:'karşılar',f:'مُسْتَقْبَلٌ',fc:'<i class="flz">مُ</i>سْتَقْبَلٌ',m:'karşılanan · gelecek',dz:['مُسْتَقْبِلٌ','اِسْتِقْبَالٌ'],g:'m'},
- {s:'يُقَدِّمُ',vm:'sunar',f:'مُقَدَّمٌ',fc:'<i class="flz">مُ</i>قَدَّمٌ',m:'sunulan',dz:['مُقَدِّمٌ','تَقْدِيمٌ'],g:'m'},
- {s:'يُحْضِرُ',vm:'getirir',f:'مُحْضَرٌ',fc:'<i class="flz">مُ</i>حْضَرٌ',m:'getirilen · hazır edilen',dz:['مُحْضِرٌ','حَاضِرٌ'],g:'m'}
+ {s:'كَتَبَ',vm:'yazdı',f:'مَكْتُوبٌ',fc:'<i class="flz">مَ</i>كْتُ<i class="flz">و</i>بٌ',m:'yazılan',dz:['كَاتِبٌ','كِتَابَةٌ'],g:'sah'},
+ {s:'فَتَحَ',vm:'açtı',f:'مَفْتُوحٌ',fc:'<i class="flz">مَ</i>فْتُ<i class="flz">و</i>حٌ',m:'açılan · açık',dz:['فَاتِحٌ','فَتْحٌ'],g:'sah'},
+ {s:'سَأَلَ',vm:'sordu',f:'مَسْؤُولٌ',fc:'<i class="flz">مَ</i>سْؤُ<i class="flz">و</i>لٌ',m:'sorulan · sorumlu',dz:['سَائِلٌ','سُؤَالٌ'],g:'sah'},
+ {s:'قَرَأَ',vm:'okudu',f:'مَقْرُوءٌ',fc:'<i class="flz">مَ</i>قْرُ<i class="flz">و</i>ءٌ',m:'okunan',dz:['قَارِئٌ','قِرَاءَةٌ'],g:'sah'},
+ {s:'نَظَرَ',vm:'baktı',f:'مَنْظُورٌ',fc:'<i class="flz">مَ</i>نْظُ<i class="flz">و</i>رٌ',m:'bakılan',dz:['نَاظِرٌ','نَظَرٌ'],g:'sah'},
+ {s:'حَمَلَ',vm:'taşıdı',f:'مَحْمُولٌ',fc:'<i class="flz">مَ</i>حْمُ<i class="flz">و</i>لٌ',m:'taşınan',dz:['حَامِلٌ','حَمْلٌ'],g:'sah'},
+ {s:'فَهِمَ',vm:'anladı',f:'مَفْهُومٌ',fc:'<i class="flz">مَ</i>فْهُ<i class="flz">و</i>مٌ',m:'anlaşılan · kavram',dz:['فَاهِمٌ','فَهْمٌ'],g:'sah'},
+ {s:'عَلِمَ',vm:'bildi',f:'مَعْلُومٌ',fc:'<i class="flz">مَ</i>عْلُ<i class="flz">و</i>مٌ',m:'bilinen',dz:['عَالِمٌ','عِلْمٌ'],g:'sah'},
+ {s:'شَرِبَ',vm:'içti',f:'مَشْرُوبٌ',fc:'<i class="flz">مَ</i>شْرُ<i class="flz">و</i>بٌ',m:'içilen · içecek',dz:['شَارِبٌ','شُرْبٌ'],g:'sah'},
+ {s:'أَكَلَ',vm:'yedi',f:'مَأْكُولٌ',fc:'<i class="flz">مَ</i>أْكُ<i class="flz">و</i>لٌ',m:'yenilen',dz:['آكِلٌ','أَكْلٌ'],g:'sah'},
+ {s:'ضَرَبَ',vm:'vurdu',f:'مَضْرُوبٌ',fc:'<i class="flz">مَ</i>ضْرُ<i class="flz">و</i>بٌ',m:'vurulan',dz:['ضَارِبٌ','ضَرْبٌ'],g:'sah'},
+ {s:'غَسَلَ',vm:'yıkadı',f:'مَغْسُولٌ',fc:'<i class="flz">مَ</i>غْسُ<i class="flz">و</i>لٌ',m:'yıkanan',dz:['غَاسِلٌ','غَسْلٌ'],g:'sah'},
+ {s:'سَمِعَ',vm:'işitti',f:'مَسْمُوعٌ',fc:'<i class="flz">مَ</i>سْمُ<i class="flz">و</i>عٌ',m:'işitilen',dz:['سَامِعٌ','سَمْعٌ'],g:'sah'},
+ {s:'طَلَبَ',vm:'istedi',f:'مَطْلُوبٌ',fc:'<i class="flz">مَ</i>طْلُ<i class="flz">و</i>بٌ',m:'istenen · aranan',dz:['طَالِبٌ','طَلَبٌ'],g:'sah'},
+ {s:'عَرَفَ',vm:'tanıdı',f:'مَعْرُوفٌ',fc:'<i class="flz">مَ</i>عْرُ<i class="flz">و</i>فٌ',m:'tanınan · iyilik',dz:['عَارِفٌ','مَعْرِفَةٌ'],g:'sah'},
+ {s:'نَصَرَ',vm:'yardım etti',f:'مَنْصُورٌ',fc:'<i class="flz">مَ</i>نْصُ<i class="flz">و</i>رٌ',m:'yardım edilen',dz:['نَاصِرٌ','نَصْرٌ'],g:'sah'},
+ {s:'شَغَلَ',vm:'meşgul etti',f:'مَشْغُولٌ',fc:'<i class="flz">مَ</i>شْغُ<i class="flz">و</i>لٌ',m:'meşgul',dz:['شَاغِلٌ','شُغْلٌ'],g:'sah'},
+ {s:'قَبِلَ',vm:'kabul etti',f:'مَقْبُولٌ',fc:'<i class="flz">مَ</i>قْبُ<i class="flz">و</i>لٌ',m:'kabul edilen',dz:['قَابِلٌ','قَبُولٌ'],g:'sah'},
+ {s:'قَالَ',vm:'söyledi',f:'مَقُولٌ',fc:'<i class="flz">مَ</i>قُ<i class="flz">و</i>لٌ',m:'söylenen',dz:['قَائِلٌ','قَوْلٌ'],g:'ecvV'},
+ {s:'زَارَ',vm:'ziyaret etti',f:'مَزُورٌ',fc:'<i class="flz">مَ</i>زُ<i class="flz">و</i>رٌ',m:'ziyaret edilen',dz:['زَائِرٌ','زِيَارَةٌ'],g:'ecvV'},
+ {s:'صَانَ',vm:'korudu',f:'مَصُونٌ',fc:'<i class="flz">مَ</i>صُ<i class="flz">و</i>نٌ',m:'korunan',dz:['صَائِنٌ','صَوْنٌ'],g:'ecvV'},
+ {s:'لَامَ',vm:'kınadı',f:'مَلُومٌ',fc:'<i class="flz">مَ</i>لُ<i class="flz">و</i>مٌ',m:'kınanan',dz:['لَائِمٌ','لَوْمٌ'],g:'ecvV'},
+ {s:'خَافَ',vm:'korktu',f:'مَخُوفٌ',fc:'<i class="flz">مَ</i>خُ<i class="flz">و</i>فٌ',m:'korkulan',dz:['خَائِفٌ','خَوْفٌ'],g:'ecvV'},
+ {s:'بَاعَ',vm:'sattı',f:'مَبِيعٌ',fc:'<i class="flz">مَ</i>بِ<i class="flz">ي</i>عٌ',m:'satılan',dz:['بَائِعٌ','بَيْعٌ'],g:'ecvY'},
+ {s:'كَالَ',vm:'ölçtü',f:'مَكِيلٌ',fc:'<i class="flz">مَ</i>كِ<i class="flz">ي</i>لٌ',m:'ölçülen',dz:['كَائِلٌ','كَيْلٌ'],g:'ecvY'},
+ {s:'دَانَ',vm:'borç verdi',f:'مَدِينٌ',fc:'<i class="flz">مَ</i>دِ<i class="flz">ي</i>نٌ',m:'borçlu',dz:['دَائِنٌ','دَيْنٌ'],g:'ecvY'},
+ {s:'زَادَ',vm:'artırdı',f:'مَزِيدٌ',fc:'<i class="flz">مَ</i>زِ<i class="flz">ي</i>دٌ',m:'artırılan · fazla',dz:['زَائِدٌ','زِيَادَةٌ'],g:'ecvY'},
+ {s:'عَابَ',vm:'ayıpladı',f:'مَعِيبٌ',fc:'<i class="flz">مَ</i>عِ<i class="flz">ي</i>بٌ',m:'ayıplanan · kusurlu',dz:['عَائِبٌ','عَيْبٌ'],g:'ecvY'},
+ {s:'دَعَا',vm:'davet etti',f:'مَدْعُوٌّ',fc:'<i class="flz">مَ</i>دْعُ<i class="flz">وٌّ</i>',m:'davet edilen',dz:['دَاعٍ','دُعَاءٌ'],g:'nak'},
+ {s:'رَمَى',vm:'attı',f:'مَرْمِيٌّ',fc:'<i class="flz">مَ</i>رْمِ<i class="flz">يٌّ</i>',m:'atılan',dz:['رَامٍ','رَمْيٌ'],g:'nak'},
+ {s:'قَضَى',vm:'hükmetti',f:'مَقْضِيٌّ',fc:'<i class="flz">مَ</i>قْضِ<i class="flz">يٌّ</i>',m:'hükmedilen',dz:['قَاضٍ','قَضَاءٌ'],g:'nak'},
+ {s:'نَسِيَ',vm:'unuttu',f:'مَنْسِيٌّ',fc:'<i class="flz">مَ</i>نْسِ<i class="flz">يٌّ</i>',m:'unutulan',dz:['نَاسٍ','نِسْيَانٌ'],g:'nak'},
+ {s:'بَنَى',vm:'inşa etti',f:'مَبْنِيٌّ',fc:'<i class="flz">مَ</i>بْنِ<i class="flz">يٌّ</i>',m:'bina edilen',dz:['بَانٍ','بِنَاءٌ'],g:'nak'},
+ {s:'هَدَى',vm:'hidayet etti',f:'مَهْدِيٌّ',fc:'<i class="flz">مَ</i>هْدِ<i class="flz">يٌّ</i>',m:'hidayet edilen',dz:['هَادٍ','هِدَايَةٌ'],g:'nak'},
+ {s:'رَوَى',vm:'rivayet etti',f:'مَرْوِيٌّ',fc:'<i class="flz">مَ</i>رْوِ<i class="flz">يٌّ</i>',m:'rivayet edilen',dz:['رَاوٍ','رِوَايَةٌ'],g:'lef'},
+ {s:'طَوَى',vm:'katladı',f:'مَطْوِيٌّ',fc:'<i class="flz">مَ</i>طْوِ<i class="flz">يٌّ</i>',m:'katlanmış · dürülü',dz:['طَاوٍ','طَيٌّ'],g:'lef'},
+ {s:'يُعَلِّمُ',vm:'öğretir',f:'مُعَلَّمٌ',fc:'<i class="flz">مُ</i>عَلَّمٌ',m:'öğretilen',dz:['مُعَلِّمٌ','مَعْلُومٌ'],g:'mzd'},
+ {s:'يُدَرِّسُ',vm:'okutur',f:'مُدَرَّسٌ',fc:'<i class="flz">مُ</i>دَرَّسٌ',m:'okutulan',dz:['مُدَرِّسٌ','تَدْرِيسٌ'],g:'mzd'},
+ {s:'يُرْسِلُ',vm:'gönderir',f:'مُرْسَلٌ',fc:'<i class="flz">مُ</i>رْسَلٌ',m:'gönderilen',dz:['مُرْسِلٌ','رَسُولٌ'],g:'mzd'},
+ {s:'يُسَاعِدُ',vm:'yardım eder',f:'مُسَاعَدٌ',fc:'<i class="flz">مُ</i>سَاعَدٌ',m:'yardım edilen',dz:['مُسَاعِدٌ','سَاعِدٌ'],g:'mzd'},
+ {s:'يَسْتَقْبِلُ',vm:'karşılar',f:'مُسْتَقْبَلٌ',fc:'<i class="flz">مُ</i>سْتَقْبَلٌ',m:'karşılanan · gelecek',dz:['مُسْتَقْبِلٌ','اِسْتِقْبَالٌ'],g:'mzd'},
+ {s:'يُقَدِّمُ',vm:'sunar',f:'مُقَدَّمٌ',fc:'<i class="flz">مُ</i>قَدَّمٌ',m:'sunulan',dz:['مُقَدِّمٌ','تَقْدِيمٌ'],g:'mzd'},
+ {s:'يُحْضِرُ',vm:'getirir',f:'مُحْضَرٌ',fc:'<i class="flz">مُ</i>حْضَرٌ',m:'getirilen · hazır edilen',dz:['مُحْضِرٌ','حَاضِرٌ'],g:'mzd'},
+ {s:'يُكْرِمُ',vm:'ikram eder',f:'مُكْرَمٌ',fc:'<i class="flz">مُ</i>كْرَمٌ',m:'ikram edilen',dz:['مُكْرِمٌ','إِكْرَامٌ'],g:'mzd'},
+ {s:'يَنْتَخِبُ',vm:'seçer',f:'مُنْتَخَبٌ',fc:'<i class="flz">مُ</i>نْتَخَبٌ',m:'seçilen',dz:['مُنْتَخِبٌ','اِنْتِخَابٌ'],g:'mzd'},
+ {s:'يَحْتَرِمُ',vm:'saygı duyar',f:'مُحْتَرَمٌ',fc:'<i class="flz">مُ</i>حْتَرَمٌ',m:'saygı duyulan',dz:['مُحْتَرِمٌ','اِحْتِرَامٌ'],g:'mzd'},
+ {s:'يَسْتَخْدِمُ',vm:'kullanır',f:'مُسْتَخْدَمٌ',fc:'<i class="flz">مُ</i>سْتَخْدَمٌ',m:'kullanılan',dz:['مُسْتَخْدِمٌ','اِسْتِخْدَامٌ'],g:'mzd'},
+ {s:'يُنَظِّمُ',vm:'düzenler',f:'مُنَظَّمٌ',fc:'<i class="flz">مُ</i>نَظَّمٌ',m:'düzenlenen · düzenli',dz:['مُنَظِّمٌ','تَنْظِيمٌ'],g:'mzd'},
+ {s:'يُشَاهِدُ',vm:'izler',f:'مُشَاهَدٌ',fc:'<i class="flz">مُ</i>شَاهَدٌ',m:'izlenen',dz:['مُشَاهِدٌ','مُشَاهَدَةٌ'],g:'mzd'},
+ {s:'يَتَوَقَّعُ',vm:'bekler',f:'مُتَوَقَّعٌ',fc:'<i class="flz">مُ</i>تَوَقَّعٌ',m:'beklenen',dz:['تَوَقُّعٌ','مُتَوَقِّعٌ'],g:'mzd'}
 ];
+var VMCATS=[['all','Tümü'],['sah','Sahih'],['ecvV','Ecvef-Vâv'],['ecvY','Ecvef-Yâ'],['nak','Nâkıs'],['lef','Lefîf'],['mzd','Mezîd']];
 var PAIRS=[
  ['كَاتِبٌ','مَكْتُوبٌ','yazan / yazılan'],
  ['فَاتِحٌ','مَفْتُوحٌ','açan / açılan'],
@@ -6019,7 +6228,21 @@ var PAIRS=[
  ['نَاظِرٌ','مَنْظُورٌ','bakan / bakılan'],
  ['حَامِلٌ','مَحْمُولٌ','taşıyan / taşınan'],
  ['فَاهِمٌ','مَفْهُومٌ','anlayan / anlaşılan'],
+ ['ضَارِبٌ','مَضْرُوبٌ','vuran / vurulan'],
+ ['غَاسِلٌ','مَغْسُولٌ','yıkayan / yıkanan'],
+ ['سَامِعٌ','مَسْمُوعٌ','işiten / işitilen'],
+ ['طَالِبٌ','مَطْلُوبٌ','isteyen / istenen'],
+ ['عَارِفٌ','مَعْرُوفٌ','tanıyan / tanınan'],
+ ['نَاصِرٌ','مَنْصُورٌ','yardım eden / edilen'],
+ ['بَائِعٌ','مَبِيعٌ','satan / satılan'],
+ ['زَائِرٌ','مَزُورٌ','ziyaret eden / edilen'],
+ ['دَاعٍ','مَدْعُوٌّ','davet eden / edilen'],
+ ['رَامٍ','مَرْمِيٌّ','atan / atılan'],
+ ['قَاضٍ','مَقْضِيٌّ','hükmeden / hükmedilen'],
+ ['رَاوٍ','مَرْوِيٌّ','rivayet eden / edilen'],
  ['مُعَلِّمٌ','مُعَلَّمٌ','öğreten / öğretilen'],
+ ['مُرْسِلٌ','مُرْسَلٌ','gönderen / gönderilen'],
+ ['مُكْرِمٌ','مُكْرَمٌ','ikram eden / edilen'],
  ['مُسَاعِدٌ','مُسَاعَدٌ','yardım eden / edilen'],
  ['مُقَدِّمٌ','مُقَدَّمٌ','sunan / sunulan']
 ];
@@ -6079,19 +6302,52 @@ function Q6(i){
   focus:'<span class="fbig" dir="rtl">'+src+'</span><div class="fme">'+p[2]+'</div>',
   opts:qO([tgt].concat(wr),0,1),_id:i%MD.length};}
 function loop(host,kinds){
- var sc=0,cb=0,ix=shf(MD.map(function(_,k){return k;})),p=0;
- host.innerHTML='<div class="vstat">Skor <b id="vMs">0</b> · <span id="vMc">combo ×0</span></div><div id="vMq"></div>';
- function ask(){
-  var i=ix[p%ix.length];p++;
-  var g=kinds[Math.floor(Math.random()*kinds.length)](i);
-  vQ(v$('vMq'),g,function(ok,ms){
-   if(ok){sc++;cb++;if(ms<3500)mark(g._id);}else cb=0;
-   v$('vMs').textContent=sc;v$('vMc').textContent='combo ×'+cb;
-   setTimeout(function(){if(VT==='meful'&&VMODE==='practice')ask();},430);
-  });
- }
- ask();
+ window.vDrill(host,MD,kinds,{catOf:function(e){return e.g;},cats:VMCATS,mark:mark});
 }
+window.VFMEXAM=function(host,retry){
+ var FDX=window.VFAIL||[];
+ function K5(k){
+  var p=PAIRS[k%PAIRS.length],which=Math.random()<0.5?0:1,w=p[which];
+  return {q:{prompt:'Bu kelime <b>fâil</b> mi، <b>mef’ûl</b> mü?',
+   focus:'<span class="fbig" dir="rtl">'+w+'</span><div class="fme">'+p[2]+'</div>',
+   opts:qO(which===0?['İsm-i Fâil (yapan)','İsm-i Mef’ûl (yapılan)']:['İsm-i Mef’ûl (yapılan)','İsm-i Fâil (yapan)'],0,0),
+   note:'Karar noktası: sondan önceki hareke — KESRA yapan، FETHA/مَفْعُول yapılan.'},
+  rev:{lb:p[2],ar:p[which]}};
+ }
+ function K6(k){
+  var p=PAIRS[k%PAIRS.length],dir=Math.random()<0.5;
+  var src=dir?p[0]:p[1],tgt=dir?p[1]:p[0];
+  var wr=shf(PAIRS.filter(function(x){return x!==p;})).slice(0,3).map(function(x){return dir?x[1]:x[0];});
+  return {q:{prompt:dir?'Bu fâilin <b>mef’ûlü</b> hangisi?':'Bu mef’ûlün <b>fâili</b> hangisi?',
+   focus:'<span class="fbig" dir="rtl">'+src+'</span><div class="fme">'+p[2]+'</div>',
+   opts:qO([tgt].concat(wr),0,1)},rev:{lb:p[2],ar:tgt}};
+ }
+ function KF(k){
+  var e=FDX[k%FDX.length];
+  var wr=shf(FDX.filter(function(x){return x!==e;})).slice(0,3).map(function(x){return x.f;});
+  return {q:{prompt:'Bu fiilin ism-i <b>FÂİLİ</b> hangisi?',
+   focus:'<span class="fbig" dir="rtl">'+e.s+'</span><div class="fme">'+e.m+'</div>',
+   opts:qO([e.f].concat(wr),0,1)},rev:{lb:e.m,ar:e.f}};
+ }
+ function KM(k){
+  var e=MD[k%MD.length];
+  var wr=shf(MD.filter(function(x){return x!==e;})).slice(0,3).map(function(x){return x.f;});
+  return {q:{prompt:'Bu fiilin ism-i <b>MEF’ÛLÜ</b> hangisi?',
+   focus:'<span class="fbig" dir="rtl">'+e.s+'</span><div class="fme">'+e.vm+'</div>',
+   opts:qO([e.f].concat(wr),0,1)},rev:{lb:e.m,ar:e.f}};
+ }
+ var plan=[K5,KF,K6,KM];
+ var sq=shf(PAIRS.map(function(_,k){return k;})),fq=shf(FDX.map(function(_,k){return k;})),mq=shf(MD.map(function(_,k){return k;}));
+ vExamRun(host,{title:'Ortak Sınav · Fâil ↔ Mef’ûl',subtitle:'İki kalıbın ayrımı، iki yönde dönüşüm ve fiilden türetme — 50 soru.',n:50,
+  retry:retry,
+  gen:function(k){
+   var t=plan[k%4];
+   if(t===K5)return K5(sq[k%sq.length]);
+   if(t===K6)return K6(sq[(k+7)%sq.length]);
+   if(t===KF)return KF(fq[k%fq.length]);
+   return KM(mq[k%mq.length]);
+  }});
+};
 function rLearn(){
  var h=v$('vv-learn');if(!h)return;
  function rows(g){return MD.filter(function(e){return e.g===g;}).map(function(e){
@@ -6125,8 +6381,18 @@ function rLearn(){
   '<div class="kseri"><b dir="rtl">الرَّجُلُ <i class="flz">مَسْؤُولٌ</i> عَنْ عَمَلِهِ</b><br><small>Adam işinden sorumludur.</small></div>'+
   '<div class="mznote">Dilimize geçenler zaten mef’ûl: <b dir="rtl">مَفْهُومٌ</b> kavram، <b dir="rtl">مَعْلُومٌ</b> malûm، <b dir="rtl">مَسْؤُولٌ</b> mes’ûl (sorumlu)، <b dir="rtl">مُسْتَقْبَلٌ</b> istikbâl (gelecek)، <b dir="rtl">مَكْتُوبٌ</b> mektup، <b dir="rtl">مَشْهُورٌ</b> meşhur، <b dir="rtl">مَمْنُونٌ</b> memnun، <b dir="rtl">مَحْصُولٌ</b> mahsûl.</div>'+
   '<div class="mznote">İlletli köklerde: ecvefte و düşer — <b dir="rtl">قَالَ → مَقُولٌ</b>. Nâkısta و şeddelenir — <b dir="rtl">دَعَا → مَدْعُوٌّ</b>. Hemzeli baş uzar — <b dir="rtl">أَكَلَ → مَأْكُولٌ</b>.</div>'+
-  '<div class="fsec">Sülâsî · مَفْعُول</div>'+rows('s')+
-  '<div class="fsec">Mezîd · مُـَ</div>'+rows('m')+
+  '<div class="fsec">1 · Sahih Sülâsî</div>'+
+  '<div class="kseri">Kalıp <b dir="rtl">مَفْعُول</b>: başta fethalı مَـ، sonda و. Hemzeliler dahil: <b dir="rtl">مَأْكُولٌ</b>، <b dir="rtl">مَقْرُوءٌ</b>.</div>'+rows('sah')+
+  '<div class="fsec">2 · Ecvef-Vâv</div>'+
+  '<div class="kseri">Vâvî ecvefte kalıp KISALIR: <b dir="rtl">قَالَ → مَقُولٌ</b> (aslı مَقْوُولٌ، و’lardan biri düşer).</div>'+rows('ecvV')+
+  '<div class="fsec">3 · Ecvef-Yâ</div>'+
+  '<div class="kseri">Yâî ecvefte kalıp <b dir="rtl">مَفِيل</b> olur: <b dir="rtl">بَاعَ → مَبِيعٌ</b>. Vâvlıyla karıştırma: مَقُول ama مَبِيع.</div>'+rows('ecvY')+
+  '<div class="fsec">4 · Nâkıs</div>'+
+  '<div class="kseri">Son harf şeddeli يّ ya da وّ ile biter: <b dir="rtl">رَمَى → مَرْمِيٌّ</b>، <b dir="rtl">دَعَا → مَدْعُوٌّ</b> (vâvî kök وّ، yâî kök يّ alır).</div>'+rows('nak')+
+  '<div class="fsec">5 · Lefîf</div>'+
+  '<div class="kseri">İki illetli köklerde de sonuç nâkıs gibidir: <b dir="rtl">رَوَى → مَرْوِيٌّ</b>.</div>'+rows('lef')+
+  '<div class="fsec">6 · Mezîd (4-5-6 harfli)</div>'+
+  '<div class="kseri">Fâil ile aynı gövde؛ tek fark sondan önceki <b>FETHA</b>: <b dir="rtl">يُعَلِّمُ → مُعَلَّمٌ</b>، <b dir="rtl">يَسْتَخْدِمُ → مُسْتَخْدَمٌ</b>.</div>'+rows('mzd')+
   '<div class="mznote" style="margin-top:12px">Satıra dokun — sesli oku. Fâil sayfasıyla yan yana çalışırsan ayrım bir günde oturur.</div>';
  h.onclick=function(ev){
   var r=ev.target.closest('[data-msay]');
@@ -6146,19 +6412,37 @@ function rList(){
 function rExam(){
  var h=v$('vv-exam');if(!h)return;
  var seq=shf(MD.map(function(_,k){return k;}));
- var kinds=[Q1,Q4,Q5,Q7m,Q3,Q6];
- vExamRun(h,{title:'Sınav · İsm-i Mef’ûl',subtitle:'Kalıp, cümle, ayrım ve dönüşüm — 12 soru, 6 tür.',n:12,
-  retry:rExam,
-  gen:function(k){
-   var qq=kinds[k%6](seq[k%seq.length]);
-   return {q:qq,rev:{lb:MD[qq._id].m,ar:MD[qq._id].f}};
-  }});
+ h.innerHTML='<div class="vchips" style="justify-content:center;margin:6px 0 10px">'+
+  '<button type="button" class="vchip on" data-mxm="12">Hızlı · 12</button>'+
+  '<button type="button" class="vchip" data-mxm="24">Tam Tur · 24</button>'+
+  '<button type="button" class="vchip" data-mxm="50">Ustalık · '+MD.length+'</button>'+
+  '<button type="button" class="vchip" data-mxm="fm">Fâil ↔ Mef’ûl · 50</button>'+
+ '</div><div id="mxHost"></div>';
+ h.querySelectorAll('[data-mxm]').forEach(function(b){
+  b.onclick=function(){
+   h.querySelectorAll('[data-mxm]').forEach(function(x){x.classList.toggle('on',x===b);});
+   run(b.getAttribute('data-mxm'));
+  };
+ });
+ function run(mode){
+  var host=h.querySelector('#mxHost');
+  if(mode==='fm'){window.VFMEXAM(host,function(){run('fm');});return;}
+  var n=+mode;
+  var kinds=[Q1,Q4,Q5,Q7m,Q3,Q6],sq=shf(MD.map(function(_,k){return k;}));
+  vExamRun(host,{title:'Sınav · İsm-i Mef’ûl',subtitle:(n>=MD.length?'Ustalık — tüm havuz':'Kalıp, cümle, ayrım ve dönüşüm')+' · '+n+' soru, 6 tür.',n:n,
+   retry:function(){run(mode);},
+   gen:function(k){
+    var qq=kinds[k%6](sq[k%sq.length]);
+    return {q:qq,rev:{lb:MD[qq._id].m,ar:MD[qq._id].f}};
+   }});
+ }
+ run('12');
 }
 var _ot2=vOpenTopic;
 vOpenTopic=function(k){
  _ot2(k);
  if(k==='meful'){
-  var f=v$('vFoot');if(f)f.textContent='مَفْعُول kalıbı · sülâsî + mezîd · 18 çift';
+  var f=v$('vFoot');if(f)f.textContent='مَفْعُول kalıbı · 6 kategori · '+MD.length+' çift';
   var sb=v$('vSub');if(sb)sb.textContent='Sarf · İsim Kalıpları';
  }
 };
@@ -6269,7 +6553,7 @@ function kapi(host){
   f.style.display='block';
   if(ok){sc++;cb++;mark(AK.indexOf(cur));}else cb=0;
   v$('vAs').textContent=sc;v$('vAc').textContent='combo ×'+cb;
-  setTimeout(function(){if(VT==='aksam'&&VMODE==='practice')ask();},ok?900:1900);
+  setTimeout(function(){if(VT==='aksam'&&host.isConnected)ask();},ok?900:1900);
  });
  ask();
 }
@@ -6302,7 +6586,7 @@ function av(host){
   f.style.display='block';
   if(ok){sc++;cb++;mark(AK.indexOf(cur));}else cb=0;
   v$('vAs2').textContent=sc;v$('vAc2').textContent='combo ×'+cb;
-  setTimeout(function(){if(VT==='aksam'&&VMODE==='practice')ask();},ok?850:1900);
+  setTimeout(function(){if(VT==='aksam'&&host.isConnected)ask();},ok?850:1900);
  }
  host.addEventListener('click',function(ev){
   if(lock)return;
@@ -6389,11 +6673,25 @@ function rList(){
 }
 function rExam(){
  var h=v$('vv-exam');if(!h)return;
- var seq=shf(AK.map(function(_,k){return k;}));
- var kinds=[QA1,QA2,QA4,QA3,QA5];
- vExamRun(h,{title:'Sınav · Aksâm-ı Seb’a',subtitle:'Sınıflandırma, iz sürme, eleme ve tanı — 12 soru, 5 tür.',n:12,
-  retry:rExam,
-  gen:function(k){var qq=kinds[k%5](seq[k%seq.length]);return {q:qq,rev:{lb:KDEF[KMAP[AK[qq._id].c]].ad,ar:AK[qq._id].w}};}});
+ h.innerHTML='<div class="vchips" style="justify-content:center;margin:6px 0 10px">'+
+  '<button type="button" class="vchip on" data-axm="12">Hızlı · 12</button>'+
+  '<button type="button" class="vchip" data-axm="24">Tam Tur · 24</button>'+
+  '<button type="button" class="vchip" data-axm="35">Ustalık · '+AK.length+'</button>'+
+ '</div><div id="axHost"></div>';
+ h.querySelectorAll('[data-axm]').forEach(function(b){
+  b.onclick=function(){
+   h.querySelectorAll('[data-axm]').forEach(function(x){x.classList.toggle('on',x===b);});
+   run(+b.getAttribute('data-axm'));
+  };
+ });
+ function run(n){
+  var seq=shf(AK.map(function(_,k){return k;}));
+  var kinds=[QA1,QA2,QA4,QA3,QA5];
+  vExamRun(h.querySelector('#axHost'),{title:'Sınav · Aksâm-ı Seb’a',subtitle:(n>=AK.length?'Ustalık — tüm havuz':'Sınıflandırma, iz sürme, eleme ve tanı')+' · '+n+' soru, 5 tür.',n:n,
+   retry:function(){run(n);},
+   gen:function(k){var qq=kinds[k%5](seq[k%seq.length]);return {q:qq,rev:{lb:KDEF[KMAP[AK[qq._id].c]].ad,ar:AK[qq._id].w}};}});
+ }
+ run(12);
 }
 var _ot3=vOpenTopic;
 vOpenTopic=function(k){_ot3(k);
@@ -6499,7 +6797,7 @@ function bsec(host){
   f.style.display='block';
   if(ok){sc++;cb++;mark(BF.indexOf(cur));}else cb=0;
   v$('vBs').textContent=sc;v$('vBc').textContent='combo ×'+cb;
-  setTimeout(function(){if(VT==='bablar'&&VMODE==='practice')ask();},ok?900:1900);
+  setTimeout(function(){if(VT==='bablar'&&host.isConnected)ask();},ok?900:1900);
  });
  ask();
 }
@@ -6527,17 +6825,7 @@ function QM2(j){var e=MZ[j];
  return {prompt:'<b>'+e.ad+'</b> bâbının örneği hangisi?',
   opts:qO([e.w].concat(shf(MZ.filter(function(x){return x.ad!==e.ad;})).slice(0,3).map(function(x){return x.w;})),0,1),_id:0};}
 function bmuz(host){
- var sc=0,cb=0,ix=shf(BF.map(function(_,k){return k;})),p=0;
- host.innerHTML='<div class="vstat">Skor <b id="vB2">0</b> · <span id="vB3">combo ×0</span></div><div id="vBq"></div>';
- function ask(){
-  var i=ix[p%ix.length];p++;
-  vQ(v$('vBq'),QB1(i),function(ok,ms){
-   if(ok){sc++;cb++;if(ms<3800)mark(i);}else cb=0;
-   v$('vB2').textContent=sc;v$('vB3').textContent='combo ×'+cb;
-   setTimeout(function(){if(VT==='bablar'&&VMODE==='practice')ask();},430);
-  });
- }
- ask();
+ window.vDrill(host,BF,[QB1],{mark:mark});
 }
 function rLearn(){
  var h=v$('vv-learn');if(!h)return;
@@ -6576,18 +6864,33 @@ function rExam(){
  var h=v$('vv-exam');if(!h)return;
  var seq=shf(BF.map(function(_,k){return k;}));
  var mseq=shf(MZ.map(function(_,k){return k;}));
- var TYP=[QB1,QB2,'M1',QB3,QB1,'M2',QB2,QB3,'M1',QB1,QB3,'M2'];
- vExamRun(h,{title:'Sınav · Tüm Bâblar',subtitle:'Altı sülâsî bâb + 4-5-6 harfli mezîdler — 12 soru, 5 tür.',n:12,
-  retry:rExam,
-  gen:function(k){
-   var t=TYP[k%TYP.length];
-   if(t==='M1'||t==='M2'){
-    var j=mseq[k%mseq.length],qm=(t==='M1'?QM1:QM2)(j);
-    return {q:qm,rev:{lb:MZ[j].ad,ar:MZ[j].w}};
-   }
-   var i=seq[k%seq.length],qq2=t(i);
-   return {q:qq2,rev:{lb:B6[BF[i].b-1].ad,ar:BF[i].a}};
-  }});
+ h.innerHTML='<div class="vchips" style="justify-content:center;margin:6px 0 10px">'+
+  '<button type="button" class="vchip on" data-bxm="12">Hızlı · 12</button>'+
+  '<button type="button" class="vchip" data-bxm="24">Tam Tur · 24</button>'+
+  '<button type="button" class="vchip" data-bxm="33">Ustalık · '+(BF.length+MZ.length)+'</button>'+
+ '</div><div id="bxHost"></div>';
+ h.querySelectorAll('[data-bxm]').forEach(function(b){
+  b.onclick=function(){
+   h.querySelectorAll('[data-bxm]').forEach(function(x){x.classList.toggle('on',x===b);});
+   run(+b.getAttribute('data-bxm'));
+  };
+ });
+ function run(n){
+  var seq2=shf(BF.map(function(_,k){return k;})),mseq2=shf(MZ.map(function(_,k){return k;}));
+  var TYP=[QB1,QB2,'M1',QB3,QB1,'M2',QB2,QB3,'M1',QB1,QB3,'M2'];
+  vExamRun(h.querySelector('#bxHost'),{title:'Sınav · Tüm Bâblar',subtitle:(n>24?'Ustalık — tüm havuz':'Altı sülâsî bâb + 4-5-6 harfli mezîdler')+' · '+n+' soru, 5 tür.',n:n,
+   retry:function(){run(n);},
+   gen:function(k){
+    var t=TYP[k%TYP.length];
+    if(t==='M1'||t==='M2'){
+     var j=mseq2[k%mseq2.length],qm=(t==='M1'?QM1:QM2)(j);
+     return {q:qm,rev:{lb:MZ[j].ad,ar:MZ[j].w}};
+    }
+    var i=seq2[k%seq2.length],qq2=t(i);
+    return {q:qq2,rev:{lb:B6[BF[i].b-1].ad,ar:BF[i].a}};
+   }});
+ }
+ run(12);
 }
 var _ot4=vOpenTopic;
 vOpenTopic=function(k){_ot4(k);
@@ -6749,6 +7052,14 @@ Object.defineProperty(window,'VT',{get:function(){return VT;}});
 .clg{font-size:10.5px;color:var(--ink-soft);margin-top:5px;line-height:1.5}
 .fsent{font-family:var(--arabic);font-size:25px;direction:rtl;line-height:2.15;text-align:center;color:var(--ink)}
 .fsent u{text-decoration:none;color:var(--gold);border-bottom:2px solid var(--gold-soft,#D8BE84);padding:0 6px}
+.lxbdg{font-size:9px;letter-spacing:.1em;border-radius:99px;padding:3px 8px;font-weight:700}
+.lxbdg.bn{background:#eef2ea;color:#5c7350;border:1px solid #cfdac6}
+.lxbdg.bd{background:#fdf3e2;color:#9a7726;border:1px solid #ecd9ae}
+.lxfin{text-align:center;padding:34px 12px}
+.lxfh{font-family:var(--display);font-size:24px;margin-bottom:6px}
+.lxfs{color:var(--muted);font-size:13.5px;margin-bottom:14px}
+.lxbig{font-size:15px;padding:12px 22px;margin-bottom:16px}
+.lxfrow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 
 .flz{color:var(--vred,#B23A2E);font-style:normal}
 .fbig{font-family:var(--arabic);font-size:44px;line-height:1.95;direction:rtl;color:var(--ink)}
